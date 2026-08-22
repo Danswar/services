@@ -1,0 +1,32 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "*.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "api.anthropic.com",
+        "grafana.dfxserve.com",
+        "kuma.dfxserve.com",
+        "grok.com",
+        "api.x.ai",
+        "chatgpt.com",
+        "auth.openai.com",
+        "api.openai.com"
+      ],
+      "strictAllowlist": true
+    }
+  },
+  "autoAllowBashIfSandboxed": true,
+  "permissions": {
+    "allow": [
+      "Edit(///Users/daniel-secondary/Workspace/4e457540-ed1f-44fb-a6c9-878a7a228834/DFXswiss/services/**)",
+      "Write(///Users/daniel-secondary/Workspace/4e457540-ed1f-44fb-a6c9-878a7a228834/DFXswiss/services/**)",
+      "Read(///Users/daniel-secondary/Workspace/4e457540-ed1f-44fb-a6c9-878a7a228834/DFXswiss/services/**)",
+      "Bash"
+    ],
+    "defaultMode": "dontAsk"
+  }
+}

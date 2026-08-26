@@ -106,6 +106,16 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
   `**/v1/buy/paymentInfos` with static payloads, so a green run proves that the screen renders those
   payloads, not that the API produces them. Unit tests against the utility pin the payload shapes
   instead.
+- **The RealUnit quotes and dashboard visual specs answer the admin list themselves.**
+  `e2e/realunit-quotes.spec.ts` and `e2e/realunit-dashboard.spec.ts` fulfil
+  `GET /v1/realunit/admin/quotes` (and, on the dashboard, holders, token info, price history,
+  transactions, and the three admin stats paths buy-volume, holders and registration) with
+  synthetic fixtures that include `userId`, `userName` and `deactivatedAt`.
+  They also fulfil staff/bootstrap GETs (`/v1/language`, `/v1/fiat`, `/v1/asset`, `/v1/bankAccount`,
+  `/v1/country`, `/v1/setting/infoBanner`, `/v2/user`) so a synthetic unsigned JWT does not 401.
+  A green run proves the quote list, pending-table and stats-chart fixtures render. It does not
+  prove that the API returns those payloads, that login or token verification works, or that those
+  staff/settings or stats endpoints return real data.
 - **Two specs force KYC completeness.** Both collection-invoice cases — the refused QR and the
   stored-detail error — override `**/v2/user` so that `kyc.dataComplete` is read as `true`, because
   the invoice button is gated on that value. A green run therefore proves nothing about the gate for
@@ -143,6 +153,10 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
 - **Full-stack guest assign/refund specs SQL-write `transaction.actionSecretHash`.**
   `e2e-stack/specs/transactions.spec.ts` (`seedActionSecret`) updates the hash directly. A green run
   does **not** prove that the mail/API path creates, hashes, or delivers the action secret.
+- **Full-stack buy specs SQL-write `user_data.depositLimit`.**
+  `e2e-stack/specs/buy.spec.ts` (`openQuoteCapableBuy` and older quote cases) updates the limit
+  directly so `LIMIT_EXCEEDED` does not hide payment info. A green run does **not** prove that a
+  customer reaches that limit through the product path.
 
 ## Known gaps
 

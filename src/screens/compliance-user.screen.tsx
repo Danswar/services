@@ -1,4 +1,4 @@
-import { useAuthContext, UserRole, useKyc } from '@dfx.swiss/react';
+import { useAuthContext, UserRole } from '@dfx.swiss/react';
 import { SpinnerSize, StyledLoadingSpinner } from '@dfx.swiss/react-components';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -29,6 +29,7 @@ import { ComplianceUserData, KycFile, useCompliance } from 'src/hooks/compliance
 import { useSupportDashboardGuard } from 'src/hooks/guard.hook';
 import { useLayoutOptions } from 'src/hooks/layout-config.hook';
 import { useSplitPane } from 'src/hooks/split-pane.hook';
+import { saveBufferedFile } from 'src/util/utils';
 
 type TabType =
   | 'transactions'
@@ -57,17 +58,17 @@ export default function ComplianceUserScreen(): JSX.Element {
 
   const { translate } = useSettingsContext();
   const { id: userDataId } = useParams();
-  const { getUserData } = useCompliance();
-  const { getFile } = useKyc();
+  const { getUserData, getKycFile } = useCompliance();
   const navigate = useNavigate();
 
   const [error, setError] = useState<string>();
   const [data, setData] = useState<ComplianceUserData>();
-  const [preview, setPreview] = useState<{ url: string; contentType: string; name: string }>();
+  const [preview, setPreview] = useState<{ url: string; contentType: string; name: string; uid?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('transactions');
   const [expandedBankTxId, setExpandedBankTxId] = useState<number>();
   const [expandedCryptoInputId, setExpandedCryptoInputId] = useState<number>();
   const [expandedBankDataId, setExpandedBankDataId] = useState<number>();
+  const [expandedFiatOutputId, setExpandedFiatOutputId] = useState<number>();
   const [expandedTxUid, setExpandedTxUid] = useState<string>();
   const { containerRef, splitPercent, setSplitPercent, handleSplitDrag } = useSplitPane();
 
@@ -75,12 +76,22 @@ export default function ComplianceUserScreen(): JSX.Element {
     setExpandedBankTxId(id);
     setExpandedCryptoInputId(undefined);
     setExpandedBankDataId(undefined);
+    setExpandedFiatOutputId(undefined);
     setExpandedTxUid(undefined);
   }
 
   function handleExpandCryptoInput(id: number | undefined): void {
     setExpandedCryptoInputId(id);
     setExpandedBankTxId(undefined);
+    setExpandedBankDataId(undefined);
+    setExpandedFiatOutputId(undefined);
+    setExpandedTxUid(undefined);
+  }
+
+  function handleExpandFiatOutput(id: number | undefined): void {
+    setExpandedFiatOutputId(id);
+    setExpandedBankTxId(undefined);
+    setExpandedCryptoInputId(undefined);
     setExpandedBankDataId(undefined);
     setExpandedTxUid(undefined);
   }
@@ -89,6 +100,7 @@ export default function ComplianceUserScreen(): JSX.Element {
     setExpandedBankDataId(id);
     setExpandedBankTxId(undefined);
     setExpandedCryptoInputId(undefined);
+    setExpandedFiatOutputId(undefined);
     setExpandedTxUid(undefined);
   }
 
@@ -97,11 +109,12 @@ export default function ComplianceUserScreen(): JSX.Element {
     setExpandedBankTxId(undefined);
     setExpandedCryptoInputId(undefined);
     setExpandedBankDataId(undefined);
+    setExpandedFiatOutputId(undefined);
   }
 
   async function openFile(file: KycFile): Promise<void> {
     try {
-      const { content, contentType } = await getFile(file.uid);
+      const { content, contentType } = await getKycFile(file.uid, 'View');
       if (!content || content.type !== 'Buffer' || !Array.isArray(content.data)) {
         setError('Invalid file type');
         return;
@@ -110,9 +123,23 @@ export default function ComplianceUserScreen(): JSX.Element {
       const blob = new Blob([new Uint8Array(content.data)], { type: contentType });
       const url = URL.createObjectURL(blob);
 
-      setPreview({ url, contentType, name: file.name });
+      setPreview({ url, contentType, name: file.name, uid: file.uid });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error loading file');
+    }
+  }
+
+  async function downloadPreview(): Promise<void> {
+    if (!preview?.uid) return;
+    try {
+      const { content, contentType } = await getKycFile(preview.uid, 'Download');
+      if (!content || content.type !== 'Buffer' || !Array.isArray(content.data)) {
+        setError('Invalid file type');
+        return;
+      }
+      saveBufferedFile(content, contentType, preview.name);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error downloading file');
     }
   }
 
@@ -230,6 +257,7 @@ export default function ComplianceUserScreen(): JSX.Element {
                   preview={preview}
                   label={translate('screens/compliance', 'File Preview')}
                   onClose={() => setPreview(undefined)}
+                  onDownload={downloadPreview}
                 />
               )}
             </div>
@@ -267,11 +295,13 @@ export default function ComplianceUserScreen(): JSX.Element {
               expandedBankTxId={expandedBankTxId}
               expandedCryptoInputId={expandedCryptoInputId}
               expandedBankDataId={expandedBankDataId}
+              expandedFiatOutputId={expandedFiatOutputId}
               expandedTxUid={expandedTxUid}
               canPerformActions={data.permissions.canPerformTransactionActions}
               onExpandBankTx={handleExpandBankTx}
               onExpandCryptoInput={handleExpandCryptoInput}
               onExpandBankData={handleExpandBankData}
+              onExpandFiatOutput={handleExpandFiatOutput}
               onExpandTxUid={handleExpandTxUid}
               onStatusChanged={loadData}
             />

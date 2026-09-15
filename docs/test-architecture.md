@@ -10,11 +10,12 @@ built yet; nothing here may describe a capability as existing when it does not.
 
 ## The layers this repository owns
 
-| Layer             | Location     | What it proves                                                               | What it cannot prove                                               | Runs in CI                                                                          |
-| ----------------- | ------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| Unit              | `src/`       | the logic of a component, hook or utility, with its surroundings replaced    | that any two parts fit together                                    | drafts skip unless `ci`/`ci:full`; suite full / related / none                      |
-| Full-stack E2E    | `e2e-stack/` | the seam between frontend, API and database: screens, contracts, persistence | any money movement — every process-gated job is off during the run | drafts skip unless `ci`/`ci:full`; stack only with `ci:full` / main / bare dispatch |
-| Visual regression | `e2e/`       | appearance against committed screenshot baselines                            | function                                                           | no                                                                                  |
+| Layer              | Location                        | What it proves                                                               | What it cannot prove                                               | Runs in CI                                                                                       |
+| ------------------ | ------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Unit               | `src/`                          | the logic of a component, hook or utility, with its surroundings replaced    | that any two parts fit together                                    | drafts run (forks may wait as `action_required`); suite full / related / none                    |
+| Handbook deep-link | `scripts/handbook/deep-link.js` | `?shot=` / `?group=` / hash isolate one handbook card in a fake document     | the browser after Basic Auth, or that nginx serves the query       | `handbook-check.yaml` (drafts that touch handbook paths; Ready does not start CI)                |
+| Full-stack E2E     | `e2e-stack/`                    | the seam between frontend, API and database: screens, contracts, persistence | any money movement — every process-gated job is off during the run | drafts run (job `mode=none` without `ci:full`); stack only with `ci:full` / main / bare dispatch |
+| Visual regression  | `e2e/`                          | appearance against committed screenshot baselines                            | function                                                           | no                                                                                               |
 
 The processing chain behind the API — incoming transfers, AML, purchase calculation, liquidity,
 payout, ledger booking — is **not** testable from this repository. It belongs to the integration
@@ -41,6 +42,13 @@ Read that number together with the coverage rule in `CONTRIBUTING.md`, section
 all four metrics, and CI does not enforce it — it is a review gate. With the repository at 18 %, that
 means touching a long-neglected file makes its whole coverage your obligation. Plan for it rather
 than discovering it in review.
+
+### Handbook deep-link — `node --test scripts/handbook/deep-link.node-test.cjs`
+
+Five cases in `scripts/handbook/deep-link.node-test.cjs`: query over hash, `?group=`, id prefixes,
+isolate, and clearing a previous `handbook-target`. This is not the Jest suite. It runs in
+`handbook-check.yaml` before the image build. A green run does not prove the live page after
+Basic Auth.
 
 ### Full-stack E2E — `npm run e2e:stack`
 
@@ -109,13 +117,31 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
 - **The RealUnit quotes and dashboard visual specs answer the admin list themselves.**
   `e2e/realunit-quotes.spec.ts` and `e2e/realunit-dashboard.spec.ts` fulfil
   `GET /v1/realunit/admin/quotes` (and, on the dashboard, holders, token info, price history,
-  transactions, and the three admin stats paths buy-volume, holders and registration) with
-  synthetic fixtures that include `userId`, `userName` and `deactivatedAt`.
+  transactions, the three admin stats paths buy-volume, holders and registration,
+  `GET /v1/realunit/referral/admin/prize-wallet`, and
+  `GET /v1/realunit/referral/admin/payouts`) with synthetic fixtures that include
+  `userId`, `userName` and `deactivatedAt`.
   They also fulfil staff/bootstrap GETs (`/v1/language`, `/v1/fiat`, `/v1/asset`, `/v1/bankAccount`,
   `/v1/country`, `/v1/setting/infoBanner`, `/v2/user`) so a synthetic unsigned JWT does not 401.
-  A green run proves the quote list, pending-table and stats-chart fixtures render. It does not
-  prove that the API returns those payloads, that login or token verification works, or that those
-  staff/settings or stats endpoints return real data.
+  A green run proves the quote list, pending-table, stats-chart and prize-wallet-card fixtures
+  render. It does not prove that the API returns those payloads, that login or token verification
+  works, or that those staff/settings, stats, prize-wallet or payouts endpoints return real data.
+- **The RealUnit referral visual spec answers the relation list and promo list itself.**
+  `e2e/realunit-referral.spec.ts` fulfils `GET /v1/realunit/referral/admin/relations` and
+  `GET /v1/realunit/referral/promo` with synthetic fixtures: an empty promo list on the
+  original list screenshot, and one shareable campaign code on the landing-link and QR-dialog
+  variants, plus a synthetic unsigned Admin JWT and staff/bootstrap GETs (`/v1/language`,
+  `/v1/fiat`, `/v1/asset`, `/v1/bankAccount`, `/v1/country`, `/v1/setting/infoBanner`,
+  `/v2/user`). A green run proves the start-promo form, empty promo list, filled promo row
+  with `realunit.app/promo/{code}` and QR overlay, held-for-review relation table and detail
+  fixtures render. It does not prove that the live promo or relations API returns those
+  payloads, that login or token verification works, or that create/deactivate succeed against
+  the server.
+- **The RealUnit compliance visual spec answers the customer list and dossier itself.**
+  `e2e/realunit-compliance.spec.ts` fulfils `GET /v1/realunit/compliance/customers` and
+  `GET /v1/realunit/compliance/customers/:id` with synthetic fixtures (including `addresses`).
+  A green run proves those fixtures render. It does not prove that the API returns that payload
+  or that the server filters to RealUnit wallets.
 - **Two specs force KYC completeness.** Both collection-invoice cases — the refused QR and the
   stored-detail error — override `**/v2/user` so that `kyc.dataComplete` is read as `true`, because
   the invoice button is gated on that value. A green run therefore proves nothing about the gate for
@@ -125,6 +151,11 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
   `CollectionAccountInvoicePersonalIbanMissing` error token, so a green run proves that the screen
   displays that token, not that the API emits it for this request. A unit test against the message
   mapping pins the token contract instead.
+- **The staff ticket customer-note visual spec answers the issue payload itself.**
+  `e2e/support-ticket-note.spec.ts` fulfils `GET /v1/support/issue/:id/data`, the message thread
+  for that uid, clerks, clerk mapping and activity with synthetic fixtures. A green run proves
+  that the Kundennotiz composer renders those fixtures. It does not prove that the API returns
+  that issue or that `createSupportNote` persists a note.
 - **The support-issue receiver-IBAN spec pins KYC level and account mail on GET /v2/user.**
   `e2e/support-issue-receiver-iban.spec.ts` rewrites that response so `kyc.level` is high enough for
   the screen guard and `mail` is present if the cached wallet session has none. A green visual run
@@ -140,7 +171,10 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
   `{ clerk }` and, as fallback, `GET /v1/support/{id}` for any account other than the customer
   fixture with `{ userData: { verifiedName } }`. A green run proves that the review screen
   accepts that name, not that the API returns the logged-in staff member's `verifiedName`.
-  The spec stays on the AML reset path and does not assert the Editor label.
+  The spec covers the resettable AML-reset path and the pending ManualCheck decision form
+  in the Fail (AmlReason visible, priceDefinitionAllowedDate hidden) and Reset (hint, both
+  hidden) variants. A green run does not prove live API payloads or that the Editor label
+  is the logged-in staff member's `verifiedName`.
 - **The call-queue outcome spec answers staff identity and the dossier itself.**
   `e2e/compliance-call-queue-outcome.spec.ts` fulfils `GET /v1/support/issue/clerk` with
   `{ clerk }`, a differently named fallback on `GET /v1/support/{staffAccount}`,
@@ -157,6 +191,59 @@ run does not prove for each one; the taxonomy and cross-repository entries live 
   `e2e-stack/specs/buy.spec.ts` (`openQuoteCapableBuy` and older quote cases) updates the limit
   directly so `LIMIT_EXCEEDED` does not hide payment info. A green run does **not** prove that a
   customer reaches that limit through the product path.
+- **Full-stack continue-race specs SQL-write `user_data.tradeApprovalDate`.**
+  `e2e-stack/specs/kyc-continue-race.spec.ts` sets the date so recommendation is skipped. A green
+  run does **not** prove that a customer obtains trade approval through the product path.
+- **Full-stack continue-race specs SQL-insert STRICT `TfaLog` rows.**
+  `e2e-stack/specs/kyc-continue-race.spec.ts` inserts `kyc_log` type `TfaLog` with comment
+  `Strict (App)` so `continue()` does not 403 after FinancialData starts. A green run does
+  **not** prove the mail/app 2FA enrolment or verification path.
+- **Full-stack continue-race specs recreate `kyc_step` unique index `NULLS NOT DISTINCT`.**
+  `e2e-stack/specs/kyc-continue-race.spec.ts` drops the synchronize unique index on
+  `(userDataId, name, type, sequenceNumber)` and creates `IDX_3a1150791476264753a67212a1`
+  with `NULLS NOT DISTINCT`, matching production. A green run does **not** prove the
+  migration chain applied that index.
+- **Full-stack continue-race specs SQL-complete KYC steps.**
+  `e2e-stack/specs/kyc-continue-race.spec.ts` upserts ContactData, PersonalData, NationalityData
+  and Ident (`SumsubAuto`) to `Completed`. A green run does **not** prove those steps complete
+  through the product path, including live ident.
+- **The settings verification-call visual spec answers GET /v2/user itself.**
+  `e2e/settings-verification-call.spec.ts` fulfils `/v2/user` with three synthetic kyc payloads
+  (`phoneCallAccepted` unset / true / false) and fulfils the Settings bootstrap GETs
+  (`/v1/language`, `/v1/fiat`, `/v1/asset`, `/v1/bankAccount`, `/v1/country`,
+  `/v1/setting/infoBanner`) plus user PUT/PATCH. Unmatched `/v1/**` and `/v2/**` calls
+  get `501`. The session is a synthetic unsigned JWT, so a green run does not prove
+  login or token verification. A green run proves those three consent states render.
+  It does not prove that a live account has those kyc fields, that those bootstrap
+  endpoints return real data, that `updateCallSettings` persists, or that
+  Completed/Failed hide the section.
+- **The settings Danger Zone visual spec answers GET /v2/user itself.**
+  `e2e/settings-danger-zone.spec.ts` fulfils `/v2/user` with a synthetic kyc payload
+  (`phoneCallStatus: 'Completed'`) and fulfils the Settings bootstrap GETs
+  (`/v1/language`, `/v1/fiat`, `/v1/asset`, `/v1/bankAccount`, `/v1/country`,
+  `/v1/setting/infoBanner`) plus user PUT/PATCH. Unmatched `/v1/**` and `/v2/**` calls
+  get `501`. The session is a synthetic unsigned JWT, so a green run does not prove
+  login or token verification. A green run proves the collapsed, expanded and overlay
+  fixtures render. It does not prove that those bootstrap endpoints return real data,
+  that a live account has that kyc status, or that `deleteAccount` persists against
+  the API.
+- **The info-banner layout visual spec answers GET /v1/setting/infoBanner itself.**
+  `e2e/info-banner-layout.spec.ts` fulfils `/v1/setting/infoBanner` with synthetic
+  multilingual copy, fulfils `GET /v1/support/issue` with one fixture ticket, and
+  fulfils the Support bootstrap GETs (`/v1/language`, `/v1/fiat`, `/v1/asset`,
+  `/v1/bankAccount`, `/v1/country`, `/v2/user`). Unmatched `/v1/**` and `/v2/**`
+  calls get `501`. The session is a synthetic unsigned JWT, so a green run does not
+  prove login or token verification. A green run proves the banner renders below
+  the header on `/support` and `/support/tickets`. It does not prove that the API
+  returns that banner copy, that those bootstrap endpoints return real data, or
+  that a live account has that ticket.
+- **Full-stack screen-sync regressions hold delivery of real API responses.**
+  `e2e-stack/specs/screen-sync.spec.ts` intercepts `GET /v2/kyc/file/:id` and
+  `GET /v1/dashboard/financial/latest`, calls `route.fetch()` against the real API, then
+  delays `route.fulfill` of that same response body (no invented success payload). A green
+  run does **not** prove the API's natural latency or that production clients never race; it
+  only proves the wait barriers refuse to conclude while that held real response is still
+  undelivered, and that hub re-navigation does not abort it.
 
 ## Known gaps
 

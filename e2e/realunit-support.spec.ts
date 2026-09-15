@@ -131,7 +131,7 @@ interface SupportMessageInfo {
 }
 
 // Open issues (states Created/Pending) returned by realunit/support/list for the default Open tab. Spread across
-// the three groups the screen renders: "Awaiting reply" (lastMessageAuthor === Customer), "Created", "Pending".
+// the two groups the screen renders: "Awaiting reply" (customer wrote last) and "Answered" (we or the bot wrote last).
 const OPEN_ISSUES: SupportIssueListItem[] = [
   // Awaiting reply (customer waiting) — sorted by lastMessageDate desc by the screen
   {
@@ -162,7 +162,7 @@ const OPEN_ISSUES: SupportIssueListItem[] = [
     lastMessageDate: '2024-01-02T08:30:00.000Z',
     lastMessageAuthor: CUSTOMER_AUTHOR,
   },
-  // Created (we answered last / no customer wait)
+  // Answered (we answered last / no customer wait)
   {
     id: 7003,
     uid: 'RU-7003-UID',
@@ -177,7 +177,7 @@ const OPEN_ISSUES: SupportIssueListItem[] = [
     lastMessageDate: '2024-01-04T15:00:00.000Z',
     lastMessageAuthor: 'Rita Clerk',
   },
-  // Pending (we answered last / no customer wait)
+  // Answered (we answered last / no customer wait)
   {
     id: 7004,
     uid: 'RU-7004-UID',
@@ -303,7 +303,7 @@ test.describe('RealUnit Support dashboards - Visual Regression Tests', () => {
     token = await getAdminAuth(request);
   });
 
-  test('list screen groups open issues (awaiting reply / created / pending)', async ({ page }) => {
+  test('list screen groups open issues (awaiting reply / answered)', async ({ page }) => {
     await installSupportRoutes(page);
 
     await page.goto(`/realunit/support?session=${token}`);
@@ -333,6 +333,14 @@ test.describe('RealUnit Support dashboards - Visual Regression Tests', () => {
     await expect(page.getByText('Account Data')).toBeVisible();
     await expect(page.getByText('RU-7001-UID')).toBeVisible();
     await expect(page.getByText('The reference of the transfer is TX-12345.')).toBeVisible();
+
+    // Cmd/Ctrl+Enter is a keybinding, not chrome. The handbook shot still has to include the
+    // composer (textarea + Send) — the 1280x720 viewport cuts it off below the thread.
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    const composer = page.locator('textarea');
+    await composer.scrollIntoViewIfNeeded();
+    await expect(composer).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Send$/ })).toBeVisible();
 
     await expect(page).toHaveScreenshot('realunit-support-02-issue.png', {
       fullPage: true,

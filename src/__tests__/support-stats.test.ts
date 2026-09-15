@@ -1,5 +1,17 @@
 import type { SupportIssueListItem } from '../hooks/support-dashboard.hook';
-import { computeStatistics, customerWaitingHours, granularityFor, trendLabel, waitTier } from '../util/support-stats';
+import {
+  computeStatistics,
+  countOpenIssueGroups,
+  customerWaitingHours,
+  daysSince,
+  formatElapsed,
+  granularityFor,
+  groupOpenIssues,
+  hoursSince,
+  isUnassigned,
+  trendLabel,
+  waitTier,
+} from '../util/support-stats';
 
 const NOW = new Date('2026-06-18T12:00:00Z');
 
@@ -25,6 +37,36 @@ function issue(partial: Partial<SupportIssueListItem>): SupportIssueListItem {
   };
 }
 
+describe('support-helpers elapsed time', () => {
+  it('computes hoursSince from string and Date with an explicit now', () => {
+    expect(hoursSince(hoursAgo(5), NOW)).toBeCloseTo(5);
+    expect(hoursSince(new Date(hoursAgo(3)), NOW)).toBeCloseTo(3);
+  });
+
+  it('defaults hoursSince now to the current time', () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    expect(hoursSince(threeHoursAgo)).toBeCloseTo(3, 0);
+  });
+
+  it('computes daysSince from string and Date with an explicit now', () => {
+    expect(daysSince(daysAgo(2), NOW)).toBeCloseTo(2);
+    expect(daysSince(new Date(daysAgo(1)), NOW)).toBeCloseTo(1);
+  });
+
+  it('defaults daysSince now to the current time', () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    expect(daysSince(twoDaysAgo)).toBeCloseTo(2, 0);
+  });
+
+  it('formats elapsed hours across minute, hour, and day paths', () => {
+    expect(formatElapsed(0)).toBe('1m');
+    expect(formatElapsed(0.5)).toBe('30m');
+    expect(formatElapsed(5)).toBe('5h');
+    expect(formatElapsed(26)).toBe('1d 2h');
+    expect(formatElapsed(48)).toBe('2d');
+  });
+});
+
 describe('support-helpers customer waiting', () => {
   it('reports the waiting time only while the customer is awaiting a reply', () => {
     expect(
@@ -35,9 +77,21 @@ describe('support-helpers customer waiting', () => {
     ).toBeCloseTo(5);
   });
 
-  it('returns null when we replied last (timer resets on author flip) or there are no messages', () => {
+  it('returns null when we or the bot replied last (timer resets on author flip) or there are no messages', () => {
     expect(customerWaitingHours(issue({ lastMessageAuthor: 'Josh', lastMessageDate: hoursAgo(40) }), NOW)).toBeNull();
+    expect(
+      customerWaitingHours(issue({ lastMessageAuthor: 'AutoResponder', lastMessageDate: hoursAgo(2) }), NOW),
+    ).toBeNull();
     expect(customerWaitingHours(issue({ messageCount: 0 }), NOW)).toBeNull();
+    expect(customerWaitingHours(issue({ lastMessageAuthor: 'Customer', lastMessageDate: undefined }), NOW)).toBeNull();
+  });
+
+  it('defaults customerWaitingHours now to the current time', () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    expect(customerWaitingHours(issue({ lastMessageAuthor: 'Customer', lastMessageDate: threeHoursAgo }))).toBeCloseTo(
+      3,
+      0,
+    );
   });
 
   it('maps waiting time to rising-severity tiers (1h/12h/24h; 24h = escalated)', () => {
@@ -83,10 +137,85 @@ describe('support-helpers statistics', () => {
     expect(stats.trend).toHaveLength(12);
   });
 
+  it('increments the current month bucket for an in-period ticket on a yearly window', () => {
+    const stats = computeStatistics([issue({ created: daysAgo(2) })], 365, NOW);
+    expect(stats.granularity).toBe('month');
+    expect(stats.total).toBe(1);
+    expect(stats.trend[stats.trend.length - 1].count).toBe(1);
+    expect(stats.trend.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1);
+  });
+
+  it('defaults computeStatistics now to the current time', () => {
+    const stats = computeStatistics([]);
+    expect(stats.total).toBe(0);
+    expect(stats.avgMessages).toBe(0);
+  });
+
   it('returns zeroed values for an empty input', () => {
     const stats = computeStatistics([], 30, NOW);
     expect(stats.total).toBe(0);
     expect(stats.avgMessages).toBe(0);
+    expect(stats.perDay).toBe(0);
+  });
+
+  it('averages resolution hours for completed tickets updated inside the period', () => {
+    const issues = [
+      issue({
+        id: 1,
+        type: 'KycIssue',
+        state: 'Completed',
+        created: daysAgo(5),
+        updated: daysAgo(1),
+      }),
+      issue({
+        id: 2,
+        type: 'KycIssue',
+        state: 'Completed',
+        created: daysAgo(4),
+        updated: daysAgo(2),
+      }),
+      issue({
+        id: 5,
+        type: 'BugReport',
+        state: 'Completed',
+        created: daysAgo(3),
+        updated: daysAgo(1),
+      }),
+      issue({
+        id: 3,
+        type: 'BugReport',
+        state: 'Completed',
+        created: daysAgo(40),
+        updated: daysAgo(35), // updated outside 30d window
+      }),
+      issue({
+        id: 4,
+        type: 'GenericIssue',
+        state: 'Completed',
+        created: daysAgo(3),
+        // no updated → ignored
+      }),
+    ];
+
+    const stats = computeStatistics(issues, 30, NOW);
+    expect(stats.avgResolutionHours).toBeCloseTo((4 * 24 + 2 * 24 + 2 * 24) / 3);
+    expect(stats.resolutionByType).toEqual([
+      { key: 'KycIssue', count: 2, avgHours: (96 + 48) / 2 },
+      { key: 'BugReport', count: 1, avgHours: 48 },
+    ]);
+  });
+
+  it('treats a missing messageCount as 0 toward avgMessages', () => {
+    const stats = computeStatistics(
+      [issue({ created: daysAgo(1), messageCount: undefined }), issue({ id: 2, created: daysAgo(1), messageCount: 4 })],
+      30,
+      NOW,
+    );
+    expect(stats.avgMessages).toBeCloseTo(2);
+  });
+
+  it('returns perDay 0 when periodDays is 0', () => {
+    const stats = computeStatistics([issue({ created: hoursAgo(1) })], 0, NOW);
     expect(stats.perDay).toBe(0);
   });
 });
@@ -101,5 +230,136 @@ describe('support-helpers trendLabel', () => {
     expect(trendLabel('2026-06', 'month', 'en-US')).toBe('Jun');
     expect(trendLabel('2026-06', 'month', 'fr-FR')).toBe('juin');
     expect(trendLabel('2026-06', 'month', 'it-IT')).toBe('giu');
+  });
+});
+
+describe('isUnassigned', () => {
+  it('flags tickets without a clerk or with only the bot as clerk', () => {
+    expect(isUnassigned(issue({ clerk: undefined }))).toBe(true);
+    expect(isUnassigned(issue({ clerk: '' }))).toBe(true);
+    expect(isUnassigned(issue({ clerk: 'AutoResponder' }))).toBe(true);
+    expect(isUnassigned(issue({ clerk: 'Jana' }))).toBe(false);
+  });
+});
+
+describe('groupOpenIssues', () => {
+  it('puts tickets whose last message came from the customer first, newest on top, regardless of state', () => {
+    const groups = groupOpenIssues([
+      issue({ id: 1, state: 'Pending', lastMessageAuthor: 'Customer', lastMessageDate: '2026-08-30T11:00:00Z' }),
+      issue({ id: 2, state: 'Created', lastMessageAuthor: 'Customer', lastMessageDate: '2026-08-31T09:00:00Z' }),
+      issue({ id: 3, state: 'Created', lastMessageAuthor: 'Jana', lastMessageDate: '2026-08-31T10:00:00Z' }),
+    ]);
+
+    expect(groups.needsReply.map((i) => i.id)).toEqual([2, 1]);
+    expect(groups.answered.map((i) => i.id)).toEqual([3]);
+    expect(countOpenIssueGroups(groups)).toBe(3);
+  });
+
+  it('sorts answered tickets by last message, not by creation date, and ignores the state', () => {
+    const groups = groupOpenIssues([
+      issue({
+        id: 1,
+        state: 'Pending',
+        created: '2026-08-30T10:00:00Z',
+        lastMessageAuthor: 'Jana',
+        lastMessageDate: '2026-08-30T11:00:00Z',
+      }),
+      issue({
+        id: 2,
+        state: 'Created',
+        created: '2026-08-28T10:00:00Z',
+        lastMessageAuthor: 'Jana',
+        lastMessageDate: '2026-08-31T09:00:00Z',
+      }),
+    ]);
+
+    expect(groups.needsReply).toEqual([]);
+    // ticket 2 was created earlier but has the more recent message, so it comes first
+    expect(groups.answered.map((i) => i.id)).toEqual([2, 1]);
+  });
+
+  it('counts a bot auto-response as an answer and a ticket without any message as awaiting a reply', () => {
+    const groups = groupOpenIssues([
+      issue({ id: 1, lastMessageAuthor: 'AutoResponder', lastMessageDate: '2026-08-30T11:00:00Z' }),
+      issue({ id: 2, lastMessageAuthor: 'Jana', lastMessageDate: '2026-08-31T09:00:00Z' }),
+      issue({ id: 3, created: '2026-08-29T10:00:00Z', lastMessageAuthor: undefined, messageCount: 0 }),
+    ]);
+
+    expect(groups.needsReply.map((i) => i.id)).toEqual([3]);
+    expect(groups.answered.map((i) => i.id)).toEqual([2, 1]);
+  });
+
+  it('brings a bot-answered ticket back once the customer writes again', () => {
+    const groups = groupOpenIssues([
+      issue({ id: 1, lastMessageAuthor: 'Customer', lastMessageDate: '2026-08-30T12:00:00Z', messageCount: 3 }),
+    ]);
+
+    expect(groups.needsReply.map((i) => i.id)).toEqual([1]);
+    expect(groups.answered).toEqual([]);
+  });
+
+  it('falls back to the creation date for tickets without a message', () => {
+    const groups = groupOpenIssues([
+      issue({ id: 1, created: '2026-08-28T10:00:00Z', lastMessageAuthor: 'Jana' }),
+      issue({
+        id: 2,
+        created: '2026-08-27T10:00:00Z',
+        lastMessageAuthor: 'Jana',
+        lastMessageDate: '2026-08-29T10:00:00Z',
+      }),
+      issue({ id: 3, created: '2026-08-30T10:00:00Z', lastMessageAuthor: 'Jana' }),
+    ]);
+
+    expect(groups.answered.map((i) => i.id)).toEqual([3, 2, 1]);
+  });
+
+  it('applies the state filter before grouping, to both groups', () => {
+    const groups = groupOpenIssues(
+      [
+        issue({ id: 1, state: 'Pending', lastMessageAuthor: 'Customer', lastMessageDate: '2026-08-30T11:00:00Z' }),
+        issue({ id: 2, state: 'Created', lastMessageAuthor: 'Customer', lastMessageDate: '2026-08-31T09:00:00Z' }),
+        issue({ id: 3, state: 'Created', lastMessageAuthor: 'Jana' }),
+        issue({ id: 4, state: 'Pending', lastMessageAuthor: 'Jana' }),
+      ],
+      'Created',
+    );
+
+    expect(groups.needsReply.map((i) => i.id)).toEqual([2]);
+    expect(groups.answered.map((i) => i.id)).toEqual([3]);
+    expect(countOpenIssueGroups(groups)).toBe(2);
+  });
+
+  it('returns empty groups and a zero count for an empty input', () => {
+    const groups = groupOpenIssues([]);
+    expect(groups).toEqual({ needsReply: [], answered: [] });
+    expect(countOpenIssueGroups(groups)).toBe(0);
+  });
+
+  it('treats an empty-string stateFilter as no filter', () => {
+    const groups = groupOpenIssues(
+      [
+        issue({ id: 1, state: 'Pending', lastMessageAuthor: 'Jana' }),
+        issue({ id: 2, state: 'Created', lastMessageAuthor: 'Jana' }),
+      ],
+      '',
+    );
+
+    expect(groups.answered.map((i) => i.id).sort()).toEqual([1, 2]);
+    expect(countOpenIssueGroups(groups)).toBe(2);
+  });
+
+  it('puts a customer-authored ticket without lastMessageDate into needsReply, ordered by creation', () => {
+    const groups = groupOpenIssues([
+      issue({ id: 9, created: '2026-08-30T08:00:00Z', lastMessageAuthor: 'Customer', lastMessageDate: undefined }),
+      issue({
+        id: 10,
+        created: '2026-08-29T08:00:00Z',
+        lastMessageAuthor: 'Customer',
+        lastMessageDate: '2026-08-31T09:00:00Z',
+      }),
+    ]);
+
+    expect(groups.needsReply.map((i) => i.id)).toEqual([10, 9]);
+    expect(groups.answered).toEqual([]);
   });
 });

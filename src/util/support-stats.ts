@@ -2,8 +2,10 @@
 // so it is cheap to unit-test in isolation.
 import type { SupportIssueListItem } from 'src/hooks/support-dashboard.hook';
 
-// Author marker the backend stamps on customer messages (mirrors `CustomerAuthor` in DFXswiss/backend).
+// Author markers the backend stamps on customer and bot messages (mirror `CustomerAuthor` and
+// `AutoResponder` in DFXswiss/backend).
 export const CustomerAuthor = 'Customer';
+export const AutoResponderAuthor = 'AutoResponder';
 
 // --- Customer waiting & escalation ---
 
@@ -34,10 +36,10 @@ export function daysSince(date: string | Date, now: Date = new Date()): number {
 }
 
 // Hours the customer has been waiting for a reply, or null if the ball is on our side
-// (we answered last, or there are no messages yet). The clock restarts on every
+// (we or the bot answered last, or there are no messages yet). The clock restarts on every
 // customer message because `lastMessageDate` always points at the latest message.
 export function customerWaitingHours(issue: SupportIssueListItem, now: Date = new Date()): number | null {
-  if (issue.lastMessageAuthor !== CustomerAuthor || !issue.lastMessageDate) return null;
+  if (!needsReply(issue) || !issue.lastMessageDate) return null;
   return hoursSince(issue.lastMessageDate, now);
 }
 
@@ -48,6 +50,52 @@ export function formatElapsed(hours: number): string {
   const days = Math.floor(hours / 24);
   const rest = Math.floor(hours % 24);
   return rest > 0 ? `${days}d ${rest}h` : `${days}d`;
+}
+
+// --- Open-ticket grouping ---
+
+export interface OpenIssueGroups {
+  needsReply: SupportIssueListItem[]; // the customer wrote last: our turn
+  answered: SupportIssueListItem[]; // a staff member or the bot wrote last: the customer's turn
+}
+
+// A ticket needs a reply while the last message came from the customer, or while it has no
+// message at all (a ticket a clerk opened, or an automatically filed limit request). A fresh
+// customer ticket starts with a customer message, so new tickets land here as well. A bot
+// auto-response counts as an answer: the ticket only comes back once the customer writes again.
+export function needsReply(issue: SupportIssueListItem): boolean {
+  return !issue.lastMessageAuthor || issue.lastMessageAuthor === CustomerAuthor;
+}
+
+// A ticket nobody has picked up yet: no clerk, or only the bot (the backend stamps the bot as
+// clerk after an auto-response and clears it again on the next customer message).
+export function isUnassigned(issue: SupportIssueListItem): boolean {
+  return !issue.clerk || issue.clerk === AutoResponderAuthor;
+}
+
+// Timestamp of the latest activity on a ticket: its last message, or its creation while it has none.
+export function lastActivity(issue: SupportIssueListItem): number {
+  return new Date(issue.lastMessageDate ?? issue.created).getTime();
+}
+
+// Splits an open-ticket list into the two dashboard sections by who wrote last: tickets that need
+// our reply first, then the ones we answered. Both are sorted by latest activity (newest on top),
+// so the order matches the "Last Msg" column the clerk sees. The ticket state (Created/Pending) is
+// deliberately not part of the grouping: it is a manual flag and says nothing about whose turn it
+// is. An optional state filter narrows the list beforehand.
+export function groupOpenIssues(issues: SupportIssueListItem[], stateFilter = ''): OpenIssueGroups {
+  const filtered = stateFilter ? issues.filter((i) => i.state === stateFilter) : issues;
+  const byLastActivity = (a: SupportIssueListItem, b: SupportIssueListItem): number =>
+    lastActivity(b) - lastActivity(a);
+
+  return {
+    needsReply: filtered.filter(needsReply).sort(byLastActivity),
+    answered: filtered.filter((i) => !needsReply(i)).sort(byLastActivity),
+  };
+}
+
+export function countOpenIssueGroups(groups: OpenIssueGroups): number {
+  return groups.needsReply.length + groups.answered.length;
 }
 
 // --- Statistics ---
@@ -144,7 +192,8 @@ export function computeStatistics(
   for (const issue of inPeriod) {
     const d = new Date(issue.created);
     const key = granularity === 'day' ? dayKey(d) : monthKey(d);
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) as number) + 1);
+    // Every in-period ticket has a bucket: the window above was derived from the bucket keys.
+    buckets.set(key, (buckets.get(key) as number) + 1);
   }
 
   // resolution time per type for tickets completed within the period (same window as above)
@@ -161,7 +210,7 @@ export function computeStatistics(
     byType.set(i.type, e);
   }
   const resolutionByType = Array.from(byType.entries())
-    .map(([key, v]) => ({ key, avgHours: v.count > 0 ? v.sum / v.count : 0, count: v.count }))
+    .map(([key, v]) => ({ key, avgHours: v.sum / v.count, count: v.count }))
     .sort((a, b) => b.count - a.count);
   const avgResolutionHours =
     resolved.length > 0 ? resolved.reduce((sum, i) => sum + resolutionHours(i), 0) / resolved.length : 0;

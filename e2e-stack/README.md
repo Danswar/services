@@ -121,17 +121,17 @@ The tests container starts a `socat`-based TCP forwarder on `127.0.0.1:3000` (ov
 
 The suite under `e2e/` is visual-regression testing (screenshot baselines). It deliberately does not run in CI, because baselines are platform- and font-dependent.
 
-This harness checks function, not appearance. Draft PRs skip the CI job unless
-they carry `ci` or `ci:full`; a same-repo ready requests it once and does not
-start a second run when that label is already present. A develop PR without
-`ci:full` records `mode=none` and does not bring the stack up. There is no
-selected/partial mode: `ci:full`, PRs into `main`, and a bare
-`workflow_dispatch` (empty `base_ref`) force a full run. Both suites exist
-side by side and serve different purposes.
+This harness checks function, not appearance. Draft pull requests run the
+job (GitHub may hold fork runs as `action_required`). Ready does not start
+CI. After a fresh A38 enforce pass, `dfx pr guard` approves those waiting
+initial runs. A develop PR without `ci:full` records `mode=none` and does
+not bring the stack up. There is no selected/partial mode: `ci:full`, PRs
+into `main`, and a bare `workflow_dispatch` (empty `base_ref`) force a full
+run. Both suites exist side by side and serve different purposes.
 
 ## Relationship with the API repository
 
-The API repository has its own workflow that checks out this repository (`DFXswiss/services`)
+The API repository has its own workflow that checks out this repository (`DFXswiss/app`)
 to obtain `e2e-stack/`. Conversely, this harness builds the API image from a checked-out API
 repo (`E2E_API_REPO`, default `../api`) or uses a pre-built image (`E2E_API_IMAGE`). The two
 repos therefore depend on each other for full-stack CI: the harness lives here; the API image
@@ -141,13 +141,18 @@ and the workflow that drives the stack against API changes live in the API repos
 
 **Spec changes not picked up**
 
-If you edit a spec file and start the test run by hand via `docker compose ... run --rm tests` (bypassing `npm run e2e:stack`, which rebuilds the image automatically via `run.sh`), you **must** rebuild the tests image first:
+`up.sh` rebuilds the `tests` image on every stack start. Compose never rebuilds an existing
+image on its own, and the image `COPY`s specs at build time with no bind mounts — so without
+that step a reused Compose project (including a CI path that starts the stack with `up.sh`
+and runs tests from a separate shell) silently keeps the old specs. `npm run e2e:stack` /
+`e2e:stack:up` go through `up.sh`, so they are covered. If you start tests by hand with
+`docker compose ... run --rm tests` and skip `up.sh`, rebuild explicitly first:
 
 ```bash
 docker compose -p <project> -f e2e-stack/compose.yml -f e2e-stack/compose.tests.yml build tests
 ```
 
-Otherwise the **old** spec content runs silently: the image `COPY`s spec files in at build time, and there are no bind mounts in this environment. This exact mistake has already cost several people a full test run each.
+Otherwise the **old** spec content runs silently.
 
 **frontend-widget image not rebuilt**
 

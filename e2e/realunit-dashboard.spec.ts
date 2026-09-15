@@ -2,11 +2,13 @@ import { test, expect, Page, Route } from '@playwright/test';
 
 /**
  * Visual regression: RealUnit dashboard home (`/realunit`) pending-quotes table
- * and monitoring charts (buy volume, holders over time, registration).
+ * and monitoring charts (buy volume, holders over time, registration), plus the
+ * Bonus and Referral prize-wallet card and Prize payouts table.
  *
  * Auth is a synthetic Admin JWT. Holders, token info, price history, quotes,
- * transactions and admin stats are mocked. A green run does not prove the live
- * API returns these fields.
+ * transactions, admin stats, GET /v1/realunit/referral/admin/prize-wallet and
+ * GET /v1/realunit/referral/admin/payouts are mocked. A green run does not prove
+ * the live API returns these fields.
  */
 
 function jwt(): string {
@@ -102,6 +104,35 @@ async function installDashboardRoutes(page: Page): Promise<void> {
         { timestamp: '2026-02-02T00:00:00.000Z', holders: 12 },
       ]);
     }
+    if (path === '/v1/realunit/referral/admin/prize-wallet') {
+      return json(route, {
+        address: '0xabc0000000000000000000000000000000008001',
+        eth: 0.5,
+        realu: 80,
+      });
+    }
+    if (path === '/v1/realunit/referral/admin/payouts') {
+      return json(route, [
+        {
+          id: 9002,
+          created: '2026-02-01T12:00:00.000Z',
+          kind: 'Invite',
+          legalBasis: 'ReferralPremium',
+          status: 'Complete',
+          amount: 10,
+          chfValue: 12.5,
+          txHash: '0xabc0000000000000000000000000000000009002',
+          customerId: 8001,
+          customerWallet: '0xabc0000000000000000000000000000000008001',
+          referrerAccountId: 8003,
+          referrerWallet: '0xabc0000000000000000000000000000000008003',
+          guestAccountId: 8004,
+          guestWallet: '0xabc0000000000000000000000000000000008004',
+          code: 'AB-CD',
+          qualifyingBuy: { id: 9003, created: '2026-01-15T10:00:00.000Z', amount: 50 },
+        },
+      ]);
+    }
     if (path === '/v1/realunit/admin/stats/registration') {
       return json(route, {
         snapshot: {
@@ -159,6 +190,7 @@ test.describe('RealUnit dashboard - Visual Regression Tests', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
+    await expect(page.getByRole('heading', { name: 'Bonus and Referral' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Pending Transactions' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Buy Volume' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Holders over time' })).toBeVisible();
@@ -169,6 +201,18 @@ test.describe('RealUnit dashboard - Visual Regression Tests', () => {
 
     const screenshotOpts = { maxDiffPixels: 5000 };
     const section = (heading: string) => page.getByRole('heading', { name: heading }).locator('xpath=..');
+
+    const bonusSection = section('Bonus and Referral');
+    await bonusSection.scrollIntoViewIfNeeded();
+    await expect(bonusSection.getByText(/ETH:/)).toBeVisible();
+    await expect(bonusSection.getByText(/REALU:/)).toBeVisible();
+    await expect(bonusSection.locator('svg').first()).toBeVisible();
+    await expect(bonusSection).toHaveScreenshot('realunit-dashboard-06-bonus-referral.png', screenshotOpts);
+
+    await expect(page.getByRole('heading', { name: 'Prize payouts' })).toBeVisible();
+    const payoutsSection = page.getByTestId('payouts-panel');
+    await payoutsSection.scrollIntoViewIfNeeded();
+    await expect(payoutsSection).toHaveScreenshot('realunit-dashboard-07-prize-payouts.png', screenshotOpts);
 
     const pendingSection = section('Pending Transactions');
     await pendingSection.scrollIntoViewIfNeeded();

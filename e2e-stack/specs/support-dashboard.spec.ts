@@ -20,7 +20,7 @@ import {
   test,
   waitForRow,
 } from './fixtures';
-import { cleanupCreatedData, createSupportIssue, createUser } from './fixtures/factories';
+import { cleanupCreatedData, createLimitRequest, createSupportIssue, createUser } from './fixtures/factories';
 
 const STAFF_ROUTES = [
   '/support/dashboard',
@@ -110,11 +110,34 @@ test.describe('Support dashboard (staff)', () => {
     await expect(page.getByRole('button', { name: 'Notes' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
 
-    // Tabs: Open / OnHold / Canceled / Completed
+    // Tabs: Open / Limit Requests / OnHold / Canceled / Completed
     await expect(page.getByRole('button', { name: /^Open \(/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Limit Requests \(/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^OnHold \(/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Canceled \(/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Completed \(/ })).toBeVisible();
+  });
+
+  test('/support/dashboard/all Limit Requests tab lists a LimitRequest without Open type filter', async ({
+    page,
+  }) => {
+    const created = await createLimitRequest({ tag: 'supdash-limit-tab' });
+    const issueRow = created.supportIssueId
+      ? await queryOne<{ id: number; name: string }>(`SELECT id, name FROM support_issue WHERE id = $1`, [
+          created.supportIssueId,
+        ])
+      : await queryOne<{ id: number; name: string }>(`SELECT id, name FROM support_issue WHERE uid = $1`, [
+          required(created.supportIssueUid, 'createLimitRequest must return supportIssueId or supportIssueUid'),
+        ]);
+    const issue = required(issueRow, 'createLimitRequest must leave a support_issue row');
+
+    // Customer LimitRequests are filed under Department.Compliance. Support's issue list is
+    // restricted to Department.Support, so this listing uses Compliance (who can open the dashboard).
+    const { jwt } = await loginAs('Compliance');
+    await openScreen(page, '/support/dashboard/all', jwt);
+
+    await page.getByRole('button', { name: /^Limit Requests \(/ }).click();
+    await expect(page.getByText(issue.name, { exact: true })).toBeVisible({ timeout: 15000 });
   });
 
   test('/support/dashboard/create creates an issue for a searched customer', async ({ page }) => {
@@ -234,9 +257,9 @@ test.describe('Support dashboard (staff)', () => {
     );
     expect(updated.state).toBe(targetState);
 
-    // Staff reply via this screen's message form (Send button; Enter also works).
+    // Staff reply via this screen's message form (Send button; Cmd/Ctrl+Enter also works).
     const staffReply = `E2E staff reply ${Date.now()}`;
-    const msgBox = page.getByPlaceholder('Type a message... (Shift+Enter = neue Zeile, Enter = senden)');
+    const msgBox = page.getByPlaceholder('Type a message... (Enter = neue Zeile, Cmd/Ctrl+Enter = senden)');
     await expect(msgBox).toBeVisible();
     await msgBox.fill(staffReply);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -251,6 +274,33 @@ test.describe('Support dashboard (staff)', () => {
     );
     expect(replyRow.issueId).toBe(issueId);
     expect(replyRow.message).toBe(staffReply);
+
+    // Second reply via keyboard: Enter = newline (must not persist); Cmd/Ctrl+Enter sends.
+    const staffReplyKeyboard = `E2E staff reply keyboard ${Date.now()}`;
+    await msgBox.fill(staffReplyKeyboard);
+    await msgBox.press('Enter');
+    await expect
+      .poll(
+        async () =>
+          queryOne<{ id: number }>(
+            `SELECT id FROM support_message WHERE "issueId" = $1 AND message = $2 LIMIT 1`,
+            [issueId, staffReplyKeyboard],
+          ),
+        { message: 'Enter must not create a support_message row', timeout: 3000 },
+      )
+      .toBeUndefined();
+
+    await msgBox.press('Meta+Enter');
+    const keyboardReplyRow = await waitForRow<{ id: number; message: string; issueId: number }>(
+      `SELECT id, message, "issueId" AS "issueId"
+       FROM support_message
+       WHERE "issueId" = $1 AND message = $2
+       LIMIT 1`,
+      [issueId, staffReplyKeyboard],
+      20000,
+    );
+    expect(keyboardReplyRow.issueId).toBe(issueId);
+    expect(keyboardReplyRow.message).toBe(staffReplyKeyboard);
   });
 
   test('/support/user/:id loads the customer email for staff', async ({ page }) => {

@@ -16,7 +16,7 @@ import type { Locator, Page } from '@playwright/test';
 import { apiGet, expect, gotoWithSession, loginAs, normPath, openScreen, queryOne, required, test } from './fixtures';
 import { cleanupCreatedData, createSupportIssue, createUser, trackRow } from './fixtures/factories';
 
-/** Routes owned by this lane's RealUnit half (11 paths). */
+/** Routes owned by this lane's RealUnit half (13 paths). */
 const REALUNIT_ROUTES = [
   '/realunit',
   '/realunit/holders',
@@ -29,6 +29,8 @@ const REALUNIT_ROUTES = [
   '/realunit/support/issue/:id',
   '/realunit/compliance',
   '/realunit/compliance/user/:id',
+  '/realunit/referral',
+  '/realunit/referral/:id',
 ] as const;
 
 const IMPLAUSIBLE_ID = '999999999';
@@ -160,6 +162,8 @@ test.describe('RealUnit area', () => {
 
       await expect(page.getByRole('button', { name: 'RealUnit Support' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'RealUnit Compliance' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'RealUnit Referral' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Bonus and Referral' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Price History' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Top Holders' })).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Pending Transactions' })).toBeVisible();

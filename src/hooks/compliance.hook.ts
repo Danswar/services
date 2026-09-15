@@ -94,6 +94,7 @@ export interface ComplianceSearchResult {
 export interface UserSearchResult {
   id: number;
   kycStatus: KycStatus;
+  kycLevel?: number;
   accountType?: AccountType;
   mail?: string;
   name?: string;
@@ -515,6 +516,37 @@ export interface UserInfo {
   created: string;
 }
 
+export interface BankInfo {
+  id: number;
+  name?: string;
+  iban?: string;
+}
+
+export interface FiatOutputInfo {
+  id: number;
+  valutaDate?: string;
+  currency?: string;
+  amount?: number;
+  name?: string;
+  address?: string;
+  houseNumber?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  iban?: string;
+  bic?: string;
+  isReadyDate?: string;
+  isTransmittedDate?: string;
+  isConfirmedDate?: string;
+  isApprovedDate?: string;
+  isComplete?: boolean;
+  outputDate?: string;
+  originEntityId?: number;
+  type?: string;
+  bank?: BankInfo;
+  bankTxId?: number;
+}
+
 export interface TransactionInfo {
   id: number;
   uid: string;
@@ -541,6 +573,7 @@ export interface TransactionInfo {
   chargebackAllowedDateUser?: string;
   chargebackDate?: string;
   amlReason?: string;
+  fiatOutput?: FiatOutputInfo;
   isCompleted: boolean;
   created: string;
 }
@@ -1547,6 +1580,17 @@ export function useCompliance() {
     });
   }
 
+  async function getKycFile(
+    uid: string,
+    access: 'View' | 'Download',
+  ): Promise<{ content: { type: string; data: number[] }; contentType: string }> {
+    return call<{ content: { type: string; data: number[] }; contentType: string }>({
+      url: `kyc/file/${encodeURIComponent(uid)}?access=${access}`,
+      method: 'GET',
+      version: 'v2',
+    });
+  }
+
   return useMemo(
     () => ({
       search,
@@ -1598,6 +1642,7 @@ export function useCompliance() {
       createSupportNote,
       updateSupportNote,
       deleteSupportNote,
+      getKycFile,
     }),
     [call],
   );

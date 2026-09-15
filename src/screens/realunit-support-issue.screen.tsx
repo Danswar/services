@@ -14,9 +14,12 @@ import { STAFF_NAME_MISSING, staffNameLoadError } from 'src/components/complianc
 import { useStaffVerifiedName } from 'src/hooks/staff-verified-name.hook';
 import { useSplitPane } from 'src/hooks/split-pane.hook';
 import { ASSIGNABLE_DEPARTMENTS, SupportIssueInternalData, SupportMessageInfo } from 'src/hooks/support-dashboard.hook';
+import { useSupportDraft } from 'src/hooks/support-draft.hook';
 import { formatDateTime, statusBadge } from 'src/util/compliance-helpers';
+import { isSendShortcut } from 'src/util/message-composer';
+import { writeDraft } from 'src/util/support-draft';
 import { reasonLabel, typeLabel } from 'src/util/support-helpers';
-import { toBase64 } from 'src/util/utils';
+import { saveBufferedFile, toBase64 } from 'src/util/utils';
 
 export default function RealunitSupportIssueScreen(): JSX.Element {
   useRealunitGuard();
@@ -42,15 +45,25 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
   const [isUpdating, setIsUpdating] = useState(false);
 
   // Message form state
-  const [messageText, setMessageText] = useState('');
+  // Draft persisted per ticket, so a detour to the customer profile does not lose the text.
+  const [messageText, setMessageText, clearDraft] = useSupportDraft(id);
+  // Live ticket id for in-flight send catch: the closure's `id` stays the send-start id.
+  const idRef = useRef(id);
+  idRef.current = id;
   const { name: messageAuthor, isLoading: isLoadingAuthor, error: authorError } = useStaffVerifiedName();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const sendInFlight = useRef(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // File preview state
-  const [filePreview, setFilePreview] = useState<{ url: string; contentType: string; name: string }>();
+  const [filePreview, setFilePreview] = useState<{
+    url: string;
+    contentType: string;
+    name: string;
+    messageId: number;
+  }>();
   const { containerRef, splitPercent, handleSplitDrag } = useSplitPane();
 
   useLayoutOptions({
@@ -110,6 +123,14 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
     loadMessages();
   }, [loadMessages]);
 
+  // Clear send UI state when navigating to a different ticket
+  useEffect(() => {
+    sendInFlight.current = false;
+    setIsSending(false);
+    setSelectedFiles([]);
+    setActionError(undefined);
+  }, [id]);
+
   useEffect(() => {
     visibleIdsRef.current = new Set(messages.map((m) => m.id));
   }, [messages]);
@@ -143,23 +164,31 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
   }
 
   async function handleSendMessage(): Promise<void> {
+    if (isSending || sendInFlight.current) return;
     if (!id || (!messageText.trim() && selectedFiles.length === 0)) return;
     if (isLoadingAuthor) return;
     if (!messageAuthor) {
       setActionError(authorError ? staffNameLoadError(authorError) : STAFF_NAME_MISSING);
       return;
     }
+    sendInFlight.current = true;
     setIsSending(true);
     setActionError(undefined);
+    // The draft is dropped before the request, so a detour during the send cannot bring back text
+    // that is already on its way. On failure, storage is restored for the ticket that was sending;
+    // the composer is only updated if the clerk is still on that same ticket.
+    const sendIssueId = id;
+    const draft = messageText;
+    clearDraft();
     try {
       const author = messageAuthor;
-      const text = messageText.trim() || undefined;
+      const text = draft.trim() || undefined;
 
       if (selectedFiles.length > 0) {
         for (let i = 0; i < selectedFiles.length; i++) {
           const fileData = await toBase64(selectedFiles[i]);
           const isLast = i === selectedFiles.length - 1;
-          await createMessage(+id, {
+          await createMessage(+sendIssueId, {
             author,
             message: isLast ? text : undefined,
             file: fileData,
@@ -167,24 +196,30 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
           });
         }
       } else {
-        await createMessage(+id, { author, message: text });
+        await createMessage(+sendIssueId, { author, message: text });
       }
 
-      setMessageText('');
-      setSelectedFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      loadMessages();
+      if (idRef.current === sendIssueId) {
+        setSelectedFiles([]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        loadMessages();
+      }
     } catch (e: unknown) {
-      setActionError(e instanceof Error ? e.message : 'Send failed');
+      writeDraft(sendIssueId, draft);
+      if (idRef.current === sendIssueId) {
+        setMessageText(draft);
+        setActionError(e instanceof Error ? e.message : 'Send failed');
+      }
     } finally {
-      setIsSending(false);
+      sendInFlight.current = false;
+      if (idRef.current === sendIssueId) setIsSending(false);
     }
   }
 
   async function openFile(msg: SupportMessageInfo): Promise<void> {
     if (!issueData || !msg.fileName) return;
     try {
-      const { data, contentType } = await getFile(issueData.id, msg.id);
+      const { data, contentType } = await getFile(issueData.id, msg.id, 'View');
       if (!data || data.type !== 'Buffer' || !Array.isArray(data.data)) {
         setActionError('Invalid file type');
         return;
@@ -192,9 +227,23 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
       if (filePreview) URL.revokeObjectURL(filePreview.url);
       const blob = new Blob([new Uint8Array(data.data)], { type: contentType });
       const url = URL.createObjectURL(blob);
-      setFilePreview({ url, contentType, name: msg.fileName });
+      setFilePreview({ url, contentType, name: msg.fileName, messageId: msg.id });
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Error loading file');
+    }
+  }
+
+  async function downloadPreview(): Promise<void> {
+    if (!issueData || !filePreview) return;
+    try {
+      const { data, contentType } = await getFile(issueData.id, filePreview.messageId, 'Download');
+      if (!data || data.type !== 'Buffer' || !Array.isArray(data.data)) {
+        setActionError('Invalid file type');
+        return;
+      }
+      saveBufferedFile(data, contentType, filePreview.name);
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Error downloading file');
     }
   }
 
@@ -376,6 +425,7 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
               className="px-2 py-2 text-dfxGray-700 hover:text-dfxBlue-800 transition-colors"
               onClick={() => fileInputRef.current?.click()}
               title="Attach file"
+              disabled={isSending}
             >
               &#128206;
             </button>
@@ -385,8 +435,9 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
               rows={Math.min(8, Math.max(1, messageText.split('\n').length))}
               onChange={(e) => setMessageText(e.target.value)}
               placeholder={translate('screens/support', 'Type a message...')}
+              disabled={isSending}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (isSendShortcut(e)) {
                   e.preventDefault();
                   handleSendMessage();
                 }
@@ -428,6 +479,7 @@ export default function RealunitSupportIssueScreen(): JSX.Element {
             if (filePreview) URL.revokeObjectURL(filePreview.url);
             setFilePreview(undefined);
           }}
+          onDownload={downloadPreview}
         />
       </div>
     </div>

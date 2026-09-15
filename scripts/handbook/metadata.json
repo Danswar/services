@@ -77,7 +77,7 @@
   },
   "compliance-review-kyc-status": {
     "title": "Compliance KYC-Status",
-    "description": "KYC-Status und AML-Reset in der Compliance-Review."
+    "description": "KYC-Status und AML-Reset in der Compliance-Review sowie das ausstehende ManualCheck-Entscheidungsformular: Fail zeigt AmlReason ohne priceDefinitionAllowedDate; Reset zeigt den Hinweis ohne diese Felder."
   },
   "compliance-bank-tx-unassigned": {
     "title": "Compliance: Unzugeordnete Bankeingänge",
@@ -99,9 +99,13 @@
     "title": "RealUnit Quotes",
     "description": "RealUnit-Quote-Liste und -Detail: aktives WaitingForPayment-Buy mit Confirm Payment und Deactivate, Bestätigungs-Overlay, deaktiviertes Quote mit Deactivated At ohne Aktions-Buttons, und Support sieht bei aktivem WaitingForPayment-Buy nur Deactivate (kein Confirm Payment)."
   },
+  "realunit-referral": {
+    "title": "RealUnit Referral",
+    "description": "RealUnit-Referral-Admin: Maske zum Starten eines Promo-Codes (Code, Einlösungslimit, Mindestkauf, Gültigkeit) und leere Promo-Liste; gefüllte Promo-Zeile mit Direktlink realunit.app/promo/{code} und QR-Dialog (Ansicht plus Download SVG/PNG/JPG); Beziehungsliste mit Filter „nur zu prüfende\", Detail mit Prüf-/Auszahlungsverlauf und Aktionen Genehmigen/Ablehnen/Manuelle Prämie (jeweils mit Pflicht-Begründung). Die Referral-Prämie entsteht erst, wenn der erste abgeschlossene REALU-Kauf der eingeladenen Person mindestens 200 REALU beträgt (serverseitig geprüft); Promo-Codes haben zusätzlich ein eigenes Mindestkauf-Feld. Aktive/deaktivierte Promo-Zeilen sind in den Unit-Tests abgedeckt."
+  },
   "realunit-dashboard": {
     "title": "RealUnit Dashboard",
-    "description": "RealUnit-Startseite: Pending-Tabelle mit Address und Kundenname ohne deaktivierte Quotes, Kaufvolumen (CHF und Shares), Holder im Zeitverlauf und Registrierungs-Funnel (Registered → Completed, Drop-off Manual review)."
+    "description": "RealUnit-Startseite: Sektion Bonus und Empfehlungen mit Prize-Wallet-Adresse, QR-Code, ETH- und REALU-Guthaben; Prize-payouts-Tabelle (Rechtsgrund, Kunde, Anzahl, CHF, Tx, Code, qualifizierender Kauf) mit CSV-Export-Button; Pending-Tabelle mit Address und Kundenname ohne deaktivierte Quotes, Kaufvolumen (CHF und Shares), Holder im Zeitverlauf und Registrierungs-Funnel (Registered → Completed, Drop-off Manual review)."
   },
   "responsive": {
     "title": "Responsive Layout",
@@ -122,6 +126,18 @@
   "user-flows": {
     "title": "User-Flows",
     "description": "Übergreifende Nutzerflüsse der Services-App."
+  },
+  "info-banner-layout": {
+    "title": "Info-Banner in der App",
+    "description": "CMS-Info-Banner auf Support sitzt in der Inhaltsspalte unter dem Header, nicht als Streifen darüber. Varianten: Support-Startseite und Ticket-Liste."
+  },
+  "settings-verification-call": {
+    "title": "Verifizierungsanruf (Settings)",
+    "description": "Settings-Sektion Verifizierungsanruf: ungesetzte Einwilligung (Platzhalter Auswählen), Ja mit bevorzugter Anrufzeit, und Nein ohne Zeitauswahl. Die Sektion ist der Ort, an dem Kundinnen den Anruf erlauben oder ablehnen."
+  },
+  "settings-danger-zone": {
+    "title": "Gefahrenzone (Settings)",
+    "description": "Settings-Sektion Gefahrenzone: zugeklappt bleibt Konto löschen verborgen; aufgeklappt erscheinen der Hinweis zur zehnjährigen Aufbewahrung nach Schweizer Recht und der Lösch-Button; die Bestätigung zeigt denselben Hinweis."
   },
   "swap-process": {
     "title": "Swap-Prozess",
@@ -161,11 +177,15 @@
   },
   "support-dashboard": {
     "title": "Support-Dashboard",
-    "description": "Support-Dashboard: Übersicht und Detailansichten."
+    "description": "Support-Dashboard: Übersicht und Detailansichten; Limit-Requests-Tab neben Open."
   },
   "support-dashboard-overview": {
     "title": "Support-Dashboard Übersicht",
     "description": "Support-Dashboard-Übersicht und Statistiken."
+  },
+  "support-ticket-note": {
+    "title": "Support-Ticket Kundennotiz",
+    "description": "Staff-Issue: interne Kundennotiz mit Ticket-Betreff und Entwurf, nicht in den Kunden-Thread."
   },
   "subpage": {
     "title": "Unterseiten",
